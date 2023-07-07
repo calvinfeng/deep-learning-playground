@@ -1,8 +1,9 @@
-import torch
+import numpy as np
 import os
+import torch
 import torchvision
 import xml.etree.ElementTree as ET
-import pdb
+
 
 VOC_CLASSES = (  # always index 0
     'aeroplane',
@@ -26,6 +27,7 @@ VOC_CLASSES = (  # always index 0
     'train',
     'tvmonitor',
 )
+
 
 class VOCAnnotationTransform:
     def __init__(self, class_to_index=None,
@@ -58,7 +60,7 @@ class VOCAnnotationTransform:
             label_idx = self.class_to_index[class_name]
             bbox.append(label_idx)
             res.append(bbox)
-        return res
+        return np.array(res)
 
 
 class VOCDataset(torch.utils.data.Dataset):
@@ -76,7 +78,7 @@ class VOCDataset(torch.utils.data.Dataset):
         self._annot_path = os.path.join(root, "Annotations", "%s.xml")
         self._annot_transform = VOCAnnotationTransform()
         self._image_transform = torchvision.transforms.Compose([
-            torchvision.transforms.Resize((300, 300)),
+            torchvision.transforms.Resize((300, 300), antialias=True),
             torchvision.transforms.Normalize(mean=[0., 0., 0.],
                                              std=[255.0, 255.0, 255.0]),
         ])

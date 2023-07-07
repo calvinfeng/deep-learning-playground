@@ -2,13 +2,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
-import pdb
+from ssd.config import DEFAULT_NUM_BOXES
 
 
 class SingleShotDetector(nn.Module):
-    def __init__(self, num_classes=20):
+    def __init__(self, num_classes=20,
+                       feature_map_num_boxes=DEFAULT_NUM_BOXES):
         super(SingleShotDetector, self).__init__()
-        self.num_classes = num_classes
+        # We reserve one class for background.
+        self.num_classes = num_classes + 1
         self.base = torchvision.models.vgg16(pretrained=True).features
         # Change stride from 2 to 1
         self.base[30] = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
@@ -26,14 +28,7 @@ class SingleShotDetector(nn.Module):
             "Conv11_2": nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=0)
         })
         # This is also known as k in the paper. It is the number of boxes per feature map location.
-        self.feature_map_num_boxes = {
-            'Conv4_3': 4,
-            'Conv7': 6,
-            'Conv8_2': 6,
-            'Conv9_2': 6,
-            'Conv10_2': 4,
-            'Conv11_2': 4
-        }
+        self.feature_map_num_boxes = feature_map_num_boxes
         # Each location has 4 offsets and num_classes.
         self.loc_conv = nn.ModuleDict({
             "Conv4_3": nn.Conv2d(512, self.feature_map_num_boxes['Conv4_3'] * 4, kernel_size=3, padding=1),
@@ -44,12 +39,12 @@ class SingleShotDetector(nn.Module):
             "Conv11_2": nn.Conv2d(256, self.feature_map_num_boxes['Conv11_2'] * 4, kernel_size=3, padding=1)
         })
         self.cl_conv = nn.ModuleDict({
-            "Conv4_3": nn.Conv2d(512, self.feature_map_num_boxes['Conv4_3'] * num_classes, kernel_size=3, padding=1),
-            "Conv7": nn.Conv2d(1024, self.feature_map_num_boxes['Conv7'] * num_classes, kernel_size=3, padding=1),
-            "Conv8_2": nn.Conv2d(512, self.feature_map_num_boxes['Conv8_2'] * num_classes, kernel_size=3, padding=1),
-            "Conv9_2": nn.Conv2d(256, self.feature_map_num_boxes['Conv9_2'] * num_classes, kernel_size=3, padding=1),
-            "Conv10_2": nn.Conv2d(256, self.feature_map_num_boxes['Conv10_2'] * num_classes, kernel_size=3, padding=1),
-            "Conv11_2": nn.Conv2d(256, self.feature_map_num_boxes['Conv11_2'] * num_classes, kernel_size=3, padding=1)
+            "Conv4_3": nn.Conv2d(512, self.feature_map_num_boxes['Conv4_3'] * self.num_classes, kernel_size=3, padding=1),
+            "Conv7": nn.Conv2d(1024, self.feature_map_num_boxes['Conv7'] * self.num_classes, kernel_size=3, padding=1),
+            "Conv8_2": nn.Conv2d(512, self.feature_map_num_boxes['Conv8_2'] * self.num_classes, kernel_size=3, padding=1),
+            "Conv9_2": nn.Conv2d(256, self.feature_map_num_boxes['Conv9_2'] * self.num_classes, kernel_size=3, padding=1),
+            "Conv10_2": nn.Conv2d(256, self.feature_map_num_boxes['Conv10_2'] * self.num_classes, kernel_size=3, padding=1),
+            "Conv11_2": nn.Conv2d(256, self.feature_map_num_boxes['Conv11_2'] * self.num_classes, kernel_size=3, padding=1)
         })
 
     def forward(self, x):
@@ -83,14 +78,3 @@ class SingleShotDetector(nn.Module):
         # loc_preds = torch.cat([o.view(o.size(0), -1) for o in loc_preds], 1)
         # cls_preds = torch.cat([o.view(o.size(0), -1) for o in cls_preds], 1)
         return loc_preds, cls_preds
-
-if __name__ == '__main__':
-    x = torch.randn((1, 3, 300, 300))
-    ssd = SingleShotDetector()
-    loc_preds, cls_preds = ssd(x)
-    print("Location Predictions")
-    for key, value in loc_preds.items():
-        print("\t", key, value.shape)
-    print("Classification Predictions")
-    for key, value in cls_preds.items():
-        print("\t", key, value.shape)
