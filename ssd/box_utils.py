@@ -1,18 +1,38 @@
 import torch
-import numpy as np
-import pdb
 
-def point_form(prior_boxes, clip=False):
-    """Convert prior_boxes (x, y, width, height) to (xmin, ymin, xmax, ymax). Point form may extend
-    beyond 1. Optionally this can be clipped by passing clip=True.
+
+def point_form(center_size_boxes, clip=False):
+    """Convert center_size_boxes (cx, cy, width, height) to (xmin, ymin, xmax, ymax). Point form may
+    extend beyond 1. Optionally this can be clipped by passing clip=True.
+
+    Args:
+        center_size_boxes (tensor): boxes in center-size form
     """
-    x_min = prior_boxes[:, 0] - prior_boxes[:, 2] / 2
-    y_min = prior_boxes[:, 1] - prior_boxes[:, 3] / 2
-    x_max = prior_boxes[:, 0] + prior_boxes[:, 2] / 2
-    y_max = prior_boxes[:, 1] + prior_boxes[:, 3] / 2
+    x_min = center_size_boxes[:, 0] - center_size_boxes[:, 2] / 2
+    y_min = center_size_boxes[:, 1] - center_size_boxes[:, 3] / 2
+    x_max = center_size_boxes[:, 0] + center_size_boxes[:, 2] / 2
+    y_max = center_size_boxes[:, 1] + center_size_boxes[:, 3] / 2
+
     if clip:
         return torch.stack([x_min, y_min, x_max, y_max], axis=1).clip(0, 1)
     return torch.stack([x_min, y_min, x_max, y_max], axis=1)
+
+
+def center_size_form(point_form_boxes, clip=False):
+    """Convert point_form_boxes (xmin, ymin, xmax, ymax) to (cx, cy, width, height). Center and size
+    may extend beyond 1. Optionally this can be clipped by passing clip=True.
+
+    Args:
+        point_form_boxes (tensor): boxes in point form (xmin, ymin, xmax, ymax)
+    """
+    x = (point_form_boxes[:, 0] + point_form_boxes[:, 2]) / 2
+    y = (point_form_boxes[:, 1] + point_form_boxes[:, 3]) / 2
+    width = point_form_boxes[:, 2] - point_form_boxes[:, 0]
+    height = point_form_boxes[:, 3] - point_form_boxes[:, 1]
+
+    if clip:
+        return torch.stack([x, y, width, height], axis=1).clip(0, 1)
+    return torch.stack([x, y, width, height], axis=1)
 
 
 def intersect(box_a, box_b):
@@ -47,8 +67,8 @@ def jaccard(box_a, box_b):
     E.g.:
         A ∩ B / A ∪ B = A ∩ B / (area(A) + area(B) - A ∩ B)
     Args:
-        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects, 4]
-        box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_priors, 4]
+        box_a: (tensor) Ground truth bounding boxes in point form, Shape: [num_objects, 4]
+        box_b: (tensor) Prior boxes in point form, Shape: [num_priors, 4]
     Return:
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """

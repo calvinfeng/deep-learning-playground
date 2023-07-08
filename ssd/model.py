@@ -62,15 +62,14 @@ class SingleShotDetector(nn.Module):
             if layer_name in self.feature_map_num_boxes:
                 feature_maps[layer_name] = x
 
-        for k, v in feature_maps.items():
-            print(k, v.shape)
-
         # Predict localization and class scores
         # After permutation, the tensors need to be contiguous for view() to work.
         loc_preds, cls_preds = dict(), dict()
         for layer_name, feature_map in feature_maps.items():
             loc_pred = self.loc_conv[layer_name](feature_map)
             cls_pred = self.cl_conv[layer_name](feature_map)
+            # PyTorch is channel-first by convention. We need to reshape it to channel-last for
+            # convenience.
             loc_preds[layer_name] = loc_pred.permute(0, 2, 3, 1).contiguous()
             cls_preds[layer_name] = cls_pred.permute(0, 2, 3, 1).contiguous()
 
