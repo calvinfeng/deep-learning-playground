@@ -60,7 +60,7 @@ class VOCAnnotationTransform:
             label_idx = self.class_to_index[class_name]
             bbox.append(label_idx)
             res.append(bbox)
-        return np.array(res)
+        return torch.Tensor(res)
 
 
 class VOCDataset(torch.utils.data.Dataset):

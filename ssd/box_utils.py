@@ -2,17 +2,17 @@ import torch
 import numpy as np
 import pdb
 
-def point_form_np(prior_boxes, clip=False):
-    """Convert prior_boxes to (xmin, ymin, xmax, ymax). Point form may extend beyond 1.
-    Optionally this can be clipped by passing clip=True.
+def point_form(prior_boxes, clip=False):
+    """Convert prior_boxes (x, y, width, height) to (xmin, ymin, xmax, ymax). Point form may extend
+    beyond 1. Optionally this can be clipped by passing clip=True.
     """
     x_min = prior_boxes[:, 0] - prior_boxes[:, 2] / 2
     y_min = prior_boxes[:, 1] - prior_boxes[:, 3] / 2
     x_max = prior_boxes[:, 0] + prior_boxes[:, 2] / 2
     y_max = prior_boxes[:, 1] + prior_boxes[:, 3] / 2
     if clip:
-        return np.stack([x_min, y_min, x_max, y_max], axis=1).clip(0, 1)
-    return np.stack([x_min, y_min, x_max, y_max], axis=1)
+        return torch.stack([x_min, y_min, x_max, y_max], axis=1).clip(0, 1)
+    return torch.stack([x_min, y_min, x_max, y_max], axis=1)
 
 
 def intersect(box_a, box_b):
@@ -28,12 +28,16 @@ def intersect(box_a, box_b):
     """
     A = box_a.size(0)
     B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2),
-                       box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2),
-                       box_b[:, :2].unsqueeze(0).expand(A, B, 2))
-    inter = torch.clamp((max_xy - min_xy), min=0)
-    return inter[:, :, 0] * inter[:, :, 1]
+
+    box_a_min_xy = box_a[:, :2].unsqueeze(1).expand(A, B, 2)
+    box_a_max_xy = box_a[:, 2:].unsqueeze(1).expand(A, B, 2)
+    box_b_min_xy = box_b[:, :2].unsqueeze(0).expand(A, B, 2)
+    box_b_max_xy = box_b[:, 2:].unsqueeze(0).expand(A, B, 2)
+
+    max_xy = torch.min(box_a_max_xy, box_b_max_xy)
+    min_xy = torch.max(box_a_min_xy, box_b_min_xy)
+    inter_wh = torch.clamp((max_xy - min_xy), min=0)
+    return inter_wh[:, :, 0] * inter_wh[:, :, 1]
 
 
 def jaccard(box_a, box_b):
@@ -49,8 +53,10 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
+    # Broadcast along the 1-dimension
     area_a = ((box_a[:, 2]-box_a[:, 0]) *
               (box_a[:, 3]-box_a[:, 1])).unsqueeze(1).expand_as(inter)  # [A,B]
+    # Broadcast along the 0-dimension
     area_b = ((box_b[:, 2]-box_b[:, 0]) *
               (box_b[:, 3]-box_b[:, 1])).unsqueeze(0).expand_as(inter)  # [A,B]
     union = area_a + area_b - inter
