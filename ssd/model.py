@@ -2,11 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
-from ssd.config import DEFAULT_NUM_BOXES
+import pdb
+from ssd.config import DEFAULT_NUM_BOXES, DEFAULT_FEATURE_MAP_NAMES
 
 
 class SingleShotDetector(nn.Module):
     def __init__(self, num_classes=21,
+                       feature_map_names=DEFAULT_FEATURE_MAP_NAMES,
                        feature_map_num_boxes=DEFAULT_NUM_BOXES):
         super(SingleShotDetector, self).__init__()
         # We reserve one class for background.
@@ -29,6 +31,9 @@ class SingleShotDetector(nn.Module):
         })
         # This is also known as k in the paper. It is the number of boxes per feature map location.
         self.feature_map_num_boxes = feature_map_num_boxes
+        # Use a list to ensure ordering of feature map names as we collect them for loss calculation.
+        self.feature_map_names = feature_map_names
+
         # Each location has 4 offsets and num_classes.
         self.loc_conv = nn.ModuleDict({
             "Conv4_3": nn.Conv2d(512, self.feature_map_num_boxes['Conv4_3'] * 4, kernel_size=3, padding=1),
@@ -64,16 +69,16 @@ class SingleShotDetector(nn.Module):
 
         # Predict localization and class scores
         # After permutation, the tensors need to be contiguous for view() to work.
-        loc_preds, cls_preds = dict(), dict()
-        for layer_name, feature_map in feature_maps.items():
-            loc_pred = self.loc_conv[layer_name](feature_map)
-            cls_pred = self.cl_conv[layer_name](feature_map)
-            # PyTorch is channel-first by convention. We need to reshape it to channel-last for
-            # convenience.
-            loc_preds[layer_name] = loc_pred.permute(0, 2, 3, 1).contiguous()
-            cls_preds[layer_name] = cls_pred.permute(0, 2, 3, 1).contiguous()
+        loc_preds, cls_preds = [], []
+        for fm_name in self.feature_map_names:
+            loc_pred = self.loc_conv[fm_name](feature_maps[fm_name])
+            cls_pred = self.cl_conv[fm_name](feature_maps[fm_name])
+            # PyTorch is channel-first by convention. We need to reshape it to channel-last.
+            # Then flatten them to (B, N, 4) and (B, N, num_classes) respectively.
+            loc_preds.append(loc_pred.permute(0, 2, 3, 1).contiguous().view(loc_pred.size(0), -1, 4))
+            cls_preds.append(cls_pred.permute(0, 2, 3, 1).contiguous().view(cls_pred.size(0), -1, self.num_classes))
 
         # Optionally reshape. This is dependent on how I implement the loss.
         # loc_preds = torch.cat([o.view(o.size(0), -1) for o in loc_preds], 1)
         # cls_preds = torch.cat([o.view(o.size(0), -1) for o in cls_preds], 1)
-        return loc_preds, cls_preds
+        return torch.cat(loc_preds, dim=1), torch.cat(cls_preds, dim=1)

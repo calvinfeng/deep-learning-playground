@@ -212,7 +212,7 @@ class TargetEncoder:
         # Convert matched labels to one-hot encoding.
         cls_targets = F.one_hot(matched_labels.to(torch.int64), num_classes=self.num_classes).float()
 
-        return matched_gts, loc_targets, cls_targets
+        return matched_gts, matched_labels, loc_targets, cls_targets
 
     def encode_batch(self, batch_gt_boxes, batch_gt_labels):
         """Encode batch ground truth boxes and labels for training.
@@ -231,22 +231,23 @@ class TargetEncoder:
         """
         batch_size = batch_gt_boxes.size(0)
         batch_matched_gts = []
+        batch_matched_labels = []
         batch_loc_targets = []
         batch_cls_targets = []
         for i in range(batch_size):
             gt_boxes = batch_gt_boxes[i]
             gt_labels = batch_gt_labels[i]
             non_background = gt_labels > 0 # Remove padded values.
-            if gt_labels[non_background].size(0) == 0:
-                pdb.set_trace()
-            matched_gts, loc_targets, cls_targets = self.encode(gt_boxes[non_background], gt_labels[non_background])
+            matched_gts, matched_labels, loc_targets, cls_targets = self.encode(gt_boxes[non_background], gt_labels[non_background])
             batch_matched_gts.append(matched_gts)
+            batch_matched_labels.append(matched_labels)
             batch_loc_targets.append(loc_targets)
             batch_cls_targets.append(cls_targets)
         batch_matched_gts = torch.stack(batch_matched_gts, dim=0)
+        batch_matched_labels = torch.stack(batch_matched_labels, dim=0)
         batch_loc_targets = torch.stack(batch_loc_targets, dim=0)
         batch_cls_targets = torch.stack(batch_cls_targets, dim=0)
-        return batch_matched_gts, batch_loc_targets, batch_cls_targets
+        return batch_matched_gts, batch_matched_labels, batch_loc_targets, batch_cls_targets
 
     def decode(self, loc):
         """Decode localization offsets back to relative coordinates.

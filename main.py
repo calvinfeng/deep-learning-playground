@@ -8,6 +8,9 @@ from ssd.anchor import AnchorGenerator, TargetEncoder
 from data import VOCDataset
 from data.data_utils import collate_ground_truth_boxes
 from ssd.box_utils import point_form
+from ssd.loss import MultiBoxLoss
+
+BATCH_SIZE = 4
 
 
 def data_loader():
@@ -22,16 +25,17 @@ def data_loader():
     encoder = TargetEncoder(priors_boxes, iou_threshold=0.5)
 
     train_dataset = VOCDataset("train")
-    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=1,
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=1,
                               collate_fn=collate_ground_truth_boxes)
     for batch_imgs, batch_gts in train_loader:
-        batch_matched_gts, batch_loc_targets, batch_cls_targets = encoder.encode_batch(batch_gts[:, :, :4], batch_gts[:, :, 4])
-        # print("Batch Matched Ground Truths", batch_matched_gts.shape)
-        # print("Batch Location Targets", batch_loc_targets.shape)
-        # print("Batch Classification Targets", batch_cls_targets.shape)
+        batch_matched_gts, batch_matched_labels, batch_loc_targets, batch_cls_targets = encoder.encode_batch(batch_gts[:, :, :4], batch_gts[:, :, 4])
+        print("Batch Matched Ground Truths", batch_matched_gts.shape)
+        print("Batch Matched Labels", batch_matched_labels.shape)
+        print("Batch Location Targets", batch_loc_targets.shape)
+        print("Batch Classification Targets", batch_cls_targets.shape)
 
     val_dataset = VOCDataset("val")
-    val_loader = DataLoader(val_dataset, batch_size=4, shuffle=False, num_workers=1,
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=1,
                             collate_fn=collate_ground_truth_boxes)
 
     for x, y in val_loader:
@@ -39,12 +43,6 @@ def data_loader():
 
 
 def main():
-    dataset = VOCDataset()
-
-    img_tensor, bboxes = dataset[102]
-    gt_boxes = bboxes[:, :4]
-    gt_labels = bboxes[:, 4]
-
     generator = AnchorGenerator()
     anchor_boxes_by_layer = generator.anchor_boxes
     priors_boxes = []
@@ -54,30 +52,23 @@ def main():
     priors_boxes = point_form(priors_boxes, clip=True)
 
     encoder = TargetEncoder(priors_boxes, iou_threshold=0.5)
-    matched_gts, loc_targets, cls_targets = encoder.encode(gt_boxes, gt_labels)
 
-    x = torch.randn((1, 3, 300, 300))
+    train_dataset = VOCDataset("train")
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=1,
+                              collate_fn=collate_ground_truth_boxes)
+
+    loss = MultiBoxLoss()
     ssd = SingleShotDetector()
-    loc_preds_by_layer, cls_preds_by_layer = ssd(x)
-
-    loc_preds = []
-    print("Location Predictions")
-    for key, value in loc_preds_by_layer.items():
-        print("\t", key, value.shape)
-        loc_preds.append(value.view(-1, 4)) # Flatten to (N, 4) where N is the number of priors.
-    loc_preds = torch.cat(loc_preds, dim=0)
-
-    cls_preds = []
-    print("Classification Predictions")
-    for key, value in cls_preds_by_layer.items():
-        print("\t", key, value.shape)
-        cls_preds.append(value.view(-1, 21)) # Flatten to (N, 21) where N is the number of priors.
-    cls_preds = torch.cat(cls_preds, dim=0)
-
-    cls_loss = F.cross_entropy(cls_preds, cls_targets, reduction="sum", size_average=False)
-    loc_loss = F.smooth_l1_loss(loc_preds, loc_targets, reduction="sum", size_average=False)
-    print(cls_loss, loc_loss)
+    for batch_img, batch_gt in train_loader:
+        loc_preds, cls_preds = ssd(batch_img)
+        (batch_matched_gts,
+         batch_matched_labels,
+         batch_loc_targets,
+         batch_cls_targets) = encoder.encode_batch(batch_gt[:, :, :4], batch_gt[:, :, 4])
+        loss = loss(loc_preds, cls_preds, batch_loc_targets, batch_cls_targets)
+        print(loss)
+        break
 
 
 if __name__ == "__main__":
-    data_loader()
+    main()
