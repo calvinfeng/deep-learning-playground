@@ -14,4 +14,6 @@ class MultiBoxLoss(nn.Module):
     def forward(self, loc_preds, cls_preds, loc_targets, cls_targets):
         """
         """
+        loc_loss = F.smooth_l1_loss(loc_preds, loc_targets, reduction='none')
+
         return 0

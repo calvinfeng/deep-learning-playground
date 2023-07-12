@@ -67,10 +67,14 @@ class VOCDataset(torch.utils.data.Dataset):
     VOC_MEAN = (0.485, 0.456, 0.406) # Values from torch bench
     VOC_STD = (0.229, 0.224, 0.225)
 
-    def __init__(self, root="data/VOC2012", apply_img_transform=True):
+    def __init__(self, split, root="data/VOC2012", apply_img_transform=True):
+        if not (split == 'train' or split == 'val') or not os.path.exists(root):
+            raise ValueError("Invalid split or root path.")
+
         self.root = root
         self.image_ids = []
-        with open(os.path.join(root, "ImageSets", "Main", "train.txt")) as f:
+
+        with open(os.path.join(root, "ImageSets", "Main", f"{split}.txt")) as f:
             for line in f.readlines():
                 self.image_ids.append(line.strip())
 

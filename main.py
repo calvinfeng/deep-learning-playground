@@ -1,11 +1,28 @@
 import pdb
 import torch
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
 
 from ssd.model import SingleShotDetector
 from ssd.anchor import AnchorGenerator, TargetEncoder
 from data import VOCDataset
+from data.data_utils import collate_ground_truth_boxes
 from ssd.box_utils import point_form
+
+
+def data_loader():
+    train_dataset = VOCDataset("train")
+    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=1,
+                              collate_fn=collate_ground_truth_boxes)
+    for x, y in train_loader:
+        print(x.shape, y.shape)
+
+    val_dataset = VOCDataset("val")
+    val_loader = DataLoader(val_dataset, batch_size=4, shuffle=False, num_workers=1,
+                            collate_fn=collate_ground_truth_boxes)
+
+    for x, y in val_loader:
+        print(x.shape, y.shape)
 
 
 def main():
@@ -44,10 +61,10 @@ def main():
         cls_preds.append(value.view(-1, 21)) # Flatten to (N, 21) where N is the number of priors.
     cls_preds = torch.cat(cls_preds, dim=0)
 
-    loss = F.cross_entropy(cls_preds, cls_targets, reduction="sum")
-    print(loss)
+    cls_loss = F.cross_entropy(cls_preds, cls_targets, reduction="sum", size_average=False)
+    loc_loss = F.smooth_l1_loss(loc_preds, loc_targets, reduction="sum", size_average=False)
+    print(cls_loss, loc_loss)
 
-    encoder.decode(loc_targets)
 
 if __name__ == "__main__":
-    main()
+    data_loader()
