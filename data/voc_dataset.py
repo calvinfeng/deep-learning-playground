@@ -58,7 +58,7 @@ class VOCAnnotationTransform:
                 cur_pt = cur_pt / img_width if i % 2 == 0 else cur_pt / img_height
                 bbox.append(cur_pt)
             label_idx = self.class_to_index[class_name]
-            bbox.append(label_idx)
+            bbox.append(label_idx + 1) # Reserve a label for background.
             res.append(bbox)
         return torch.Tensor(res)
 
@@ -80,7 +80,7 @@ class VOCDataset(torch.utils.data.Dataset):
 
         self._image_path = os.path.join(root, "JPEGImages", "%s.jpg")
         self._annot_path = os.path.join(root, "Annotations", "%s.xml")
-        self._annot_transform = VOCAnnotationTransform()
+        self._annot_transform = VOCAnnotationTransform(keep_difficult=False)
         self._image_transform = torchvision.transforms.Compose([
             torchvision.transforms.Resize((300, 300), antialias=True),
             torchvision.transforms.Normalize(mean=[0., 0., 0.],

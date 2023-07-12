@@ -6,11 +6,11 @@ from ssd.config import DEFAULT_NUM_BOXES
 
 
 class SingleShotDetector(nn.Module):
-    def __init__(self, num_classes=20,
+    def __init__(self, num_classes=21,
                        feature_map_num_boxes=DEFAULT_NUM_BOXES):
         super(SingleShotDetector, self).__init__()
         # We reserve one class for background.
-        self.num_classes = num_classes + 1
+        self.num_classes = num_classes
         self.base = torchvision.models.vgg16(pretrained=True).features
         # Change stride from 2 to 1
         self.base[30] = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)

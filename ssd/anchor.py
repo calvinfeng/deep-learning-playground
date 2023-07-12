@@ -86,12 +86,9 @@ class TargetEncoder:
     """Encode ground truth boxes and labels for training by matching them with anchor boxes.
     """
     def __init__(self, prior_boxes, image_size=(300, 300),
-                                    num_classes=20,
+                                    num_classes=21,
                                     iou_threshold=0.50,
-                                    offset_variances=(0.1, 0.1, 0.2, 0.2),
-                                    feature_map_names=DEFAULT_FEATURE_MAP_NAMES,
-                                    feature_map_dims=DEFAULT_FEATURE_MAP_DIMS,
-                                    feature_map_num_boxes=DEFAULT_NUM_BOXES):
+                                    offset_variances=(0.1, 0.1, 0.2, 0.2)):
         """Initialize target encoder.
 
         Args:
@@ -100,25 +97,18 @@ class TargetEncoder:
             num_classes (int, optional): Defaults to 20.
             iou_threshold (float, optional): Defaults to 0.50.
             offset_variances (tuple, optional): Defaults to (0.1, 0.1, 0.2, 0.2).
-            feature_map_names (list, optional): Defaults to DEFAULT_FEATURE_MAP_NAMES.
-            feature_map_dims (dict, optional): Defaults to DEFAULT_FEATURE_MAP_DIMS.
-            feature_map_num_boxes (dict, optional): Defaults to DEFAULT_NUM_BOXES.
         """
         self.prior_boxes_point_form = prior_boxes
         self.image_size: Tuple[int, int] = image_size
-        self.num_classes = num_classes + 1 # Reserve 1 for background.
+        self.num_classes = num_classes
         self.iou_threshold = iou_threshold
         self.offset_variances = offset_variances
-        self.feature_map_names: List[str] = feature_map_names
-        self.feature_map_dims: Dict[str, Tuple] = feature_map_dims
-        self.feature_map_num_boxes: Dict[str, int] = feature_map_num_boxes
-
 
     def _match(self, gt_boxes, gt_labels):
         """Match ground truth boxes and labels with prior boxes.
 
         Args:
-            gt_boxes: Ground truth bounding boxes in point form, [x_min, y_min, x_max, y_max].
+            gt_boxes (tensor): Ground truth bounding boxes in point form, [x_min, y_min, x_max, y_max].
             gt_labels (tensor): Ground truth labels for each bounding box.
             prior_boxes (tensor): (num_priors, 4) in point form.
         """
@@ -164,8 +154,8 @@ class TargetEncoder:
         # This is a tensor of shape (M, 4). We have assigned a ground truth box for each
         # prior box.
         matched_gt_box_for_prior = gt_boxes[best_gt_idx_for_prior]
-        # We have assigned a label for each prior box, and add 1 to offset background label.
-        matched_gt_label_for_prior = gt_labels[best_gt_idx_for_prior] + 1
+        # We have assigned a label for each prior box.
+        matched_gt_label_for_prior = gt_labels[best_gt_idx_for_prior]
 
         # Set the IoU score of the best ground truth box for each prior box to iou_threshold. This
         # will ensure that at least 1 best ground truth box will be selected for each prior box if
@@ -178,9 +168,11 @@ class TargetEncoder:
     def _encode_loc(self, matched_gts):
         """Encode matched ground truth boxes to each prior box into localization offsets.
 
+        P is the number of prior boxes.
+
         Args:
-            matched_gts (tensor): (num_priors, 4) in point form.
-            prior_boxes (tensor): (num_priors, 4) in point form.
+            matched_gts (tensor): (P, 4) in point form.
+            prior_boxes (tensor): (P, 4) in point form.
         """
         # Convert to center form.
         matched_gts = center_size_form(matched_gts)
@@ -193,18 +185,20 @@ class TargetEncoder:
         delta = torch.cat([delta_xy, delta_wh], dim=1)
         return delta
 
-    # TODO: Figure out batching strategy later.
     def encode(self, gt_boxes, gt_labels):
         """Encode ground truth boxes and labels for training.
 
         Args:
-            gt_boxes: Ground truth bounding boxes in point form, [x_min, y_min, x_max, y_max].
-            gt_labels: Ground truth labels for each bounding box.
+            gt_boxes (tensor): Ground truth bounding boxes in point form, [x_min, y_min, x_max, y_max].
+            gt_labels (tensor): Ground truth labels for each bounding box.
+
+        P is the number of prior boxes.
+        C is the number of classes excluding background.
 
         Returns:
-            matched_gts: Ground truth boxes matched to each prior box.
-            loc_targets: Location targets for each anchor box.
-            cls_targets: Class targets for each anchor box.
+            matched_gts (tensor): (P, 4) Ground truth boxes matched to each prior box.
+            loc_targets (tensor): (P, 4) Location targets for each anchor box.
+            cls_targets (tensor): (P, C+1) Class targets for each anchor box.
         """
         # Priors are anchor boxes in [x_min, y_min, x_min, y_min] format with relative coordinate.
         # Ground truth are bounding boxes in [x_min, y_min, x_max, y_max] format with relative coordinate.
@@ -220,14 +214,48 @@ class TargetEncoder:
 
         return matched_gts, loc_targets, cls_targets
 
+    def encode_batch(self, batch_gt_boxes, batch_gt_labels):
+        """Encode batch ground truth boxes and labels for training.
+
+        Args:
+            batch_gt_boxes (tensor): Tensor of shape (B, N, 4) in point form, [x_min, y_min, x_max, y_max].
+            batch_gt_labels (tensor): Tensor of shape (B, N) contains label indices.
+
+        B is the batch size.
+        N is the number of objects in each sample.
+
+        Returns:
+            batch_matched_gts: (B, P, 4) Batch ground truth boxes matched to each prior box.
+            batch_loc_targets: Batch location targets for each anchor box.
+            batch_cls_targets: Batch class targets for each anchor box.
+        """
+        batch_size = batch_gt_boxes.size(0)
+        batch_matched_gts = []
+        batch_loc_targets = []
+        batch_cls_targets = []
+        for i in range(batch_size):
+            gt_boxes = batch_gt_boxes[i]
+            gt_labels = batch_gt_labels[i]
+            non_background = gt_labels > 0 # Remove padded values.
+            if gt_labels[non_background].size(0) == 0:
+                pdb.set_trace()
+            matched_gts, loc_targets, cls_targets = self.encode(gt_boxes[non_background], gt_labels[non_background])
+            batch_matched_gts.append(matched_gts)
+            batch_loc_targets.append(loc_targets)
+            batch_cls_targets.append(cls_targets)
+        batch_matched_gts = torch.stack(batch_matched_gts, dim=0)
+        batch_loc_targets = torch.stack(batch_loc_targets, dim=0)
+        batch_cls_targets = torch.stack(batch_cls_targets, dim=0)
+        return batch_matched_gts, batch_loc_targets, batch_cls_targets
+
     def decode(self, loc):
         """Decode localization offsets back to relative coordinates.
 
         Args:
-            loc: Localization offsets for each prior box.
+            loc (tensor): (P, 4) Localization offsets for each prior box.
 
         Returns:
-            boxes: bounding boxes in point form (xmin, ymin, xmax, ymax).
+            boxes (tensor): (P, 4) bounding boxes in point form (xmin, ymin, xmax, ymax).
         """
         # Offsets are computed in center size form.
         priors = center_size_form(self.prior_boxes_point_form)

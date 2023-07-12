@@ -11,11 +11,24 @@ from ssd.box_utils import point_form
 
 
 def data_loader():
+    generator = AnchorGenerator()
+    anchor_boxes_by_layer = generator.anchor_boxes
+    priors_boxes = []
+    for layer in anchor_boxes_by_layer:
+        priors_boxes.append(anchor_boxes_by_layer[layer].view(-1, 4))
+    priors_boxes = torch.cat(priors_boxes, dim=0)
+    priors_boxes = point_form(priors_boxes, clip=True)
+
+    encoder = TargetEncoder(priors_boxes, iou_threshold=0.5)
+
     train_dataset = VOCDataset("train")
     train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=1,
                               collate_fn=collate_ground_truth_boxes)
-    for x, y in train_loader:
-        print(x.shape, y.shape)
+    for batch_imgs, batch_gts in train_loader:
+        batch_matched_gts, batch_loc_targets, batch_cls_targets = encoder.encode_batch(batch_gts[:, :, :4], batch_gts[:, :, 4])
+        # print("Batch Matched Ground Truths", batch_matched_gts.shape)
+        # print("Batch Location Targets", batch_loc_targets.shape)
+        # print("Batch Classification Targets", batch_cls_targets.shape)
 
     val_dataset = VOCDataset("val")
     val_loader = DataLoader(val_dataset, batch_size=4, shuffle=False, num_workers=1,
