@@ -137,12 +137,11 @@ class TargetEncoder:
 
         return matched_gts, matched_labels, loc_targets, cls_targets
 
-    def encode_batch(self, batch_gt_boxes, batch_gt_labels):
+    def encode_batch(self, batch_gt):
         """Encode batch ground truth boxes and labels for training.
 
         Args:
-            batch_gt_boxes (tensor): Tensor of shape (B, N, 4) in point form, [x_min, y_min, x_max, y_max].
-            batch_gt_labels (tensor): Tensor of shape (B, N) contains label indices.
+            batch_gt (tensor): Tensor of shape (B, N, 5) in point form, [x_min, y_min, x_max, y_max, label].
 
         B is the batch size.
         N is the number of objects in each sample.
@@ -152,6 +151,8 @@ class TargetEncoder:
             batch_loc_targets: Batch location targets for each anchor box.
             batch_cls_targets: Batch class targets for each anchor box.
         """
+        batch_gt_boxes, batch_gt_labels = batch_gt[:, :, :4], batch_gt[:, :, 4]
+
         batch_size = batch_gt_boxes.size(0)
         batch_matched_gts = []
         batch_matched_labels = []
@@ -172,7 +173,7 @@ class TargetEncoder:
         batch_cls_targets = torch.stack(batch_cls_targets, dim=0)
         return batch_matched_gts, batch_matched_labels, batch_loc_targets, batch_cls_targets
 
-    def decode(self, loc):
+    def decode_localization(self, loc):
         """Decode localization offsets back to relative coordinates.
 
         Args:
@@ -194,3 +195,16 @@ class TargetEncoder:
 
         # Convert boxes to point form.
         return point_form(boxes)
+
+    def decode_classification(self, cls):
+        """Decode classification logits to class labels as integers.
+
+        Args:
+            cls (tensor): (P, C+1) Class logits for each prior box.
+
+        Returns:
+            cls (tensor): (P, C+1) Class probabilities for each prior box.
+        """
+        probs = F.softmax(cls, dim=1)
+        labels = torch.argmax(probs, dim=1)
+        return labels

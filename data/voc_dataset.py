@@ -66,9 +66,10 @@ class VOCAnnotationTransform:
 class VOCDataset(torch.utils.data.Dataset):
     VOC_MEAN = (0.485, 0.456, 0.406) # Values from torch bench
     VOC_STD = (0.229, 0.224, 0.225)
+    VALID_SPLITS = ('train', 'val', 'trainval')
 
     def __init__(self, split, root="data/VOC2012", apply_img_transform=True):
-        if not (split == 'train' or split == 'val') or not os.path.exists(root):
+        if split not in self.VALID_SPLITS or not os.path.exists(root):
             raise ValueError("Invalid split or root path.")
 
         self.root = root

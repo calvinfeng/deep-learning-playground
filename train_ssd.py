@@ -3,7 +3,8 @@ import datetime
 import os
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader
+import pdb
+from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -26,18 +27,24 @@ def train(args):
     prior_boxes = torch.cat(prior_boxes, dim=0)
     prior_boxes = point_form(prior_boxes, clip=True)
     prior_boxes = prior_boxes.to(device)
-
     encoder = TargetEncoder(prior_boxes, iou_threshold=0.5)
-    train_loader = DataLoader(VOCDataset("train"),
+
+    dataset = VOCDataset("trainval")
+    train_size = int(0.9 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
+    train_loader = DataLoader(train_dataset,
                               batch_size=args.batch_size,
                               num_workers=args.num_workers,
                               shuffle=True,
                               collate_fn=collate_ground_truth_boxes)
-    val_loader = DataLoader(VOCDataset("val"),
+    val_loader = DataLoader(val_dataset,
                             batch_size=args.batch_size,
                             num_workers=args.num_workers,
-                            shuffle=True,
+                            shuffle=False,
                             collate_fn=collate_ground_truth_boxes)
+
     multibox_loss = MultiBoxLoss()
     ssd = SingleShotDetector().to(device)
     optimizer = optim.SGD(ssd.parameters(),
@@ -46,14 +53,15 @@ def train(args):
                           weight_decay=args.weight_decay)
 
     summary_writer = None
+    start_time = datetime.datetime.now()
     if args.save_log:
-        current_time = datetime.datetime.now().strftime('%Y-%m-%dT%H-%M-%S')
-        summary_writer = SummaryWriter(log_dir=f"{args.log_dir}/ssd_{current_time}")
+        summary_writer = SummaryWriter(
+            log_dir=f"{args.log_dir}/ssd_{start_time.strftime('%Y-%m-%dT%H-%M-%S')}")
 
     global_step = 0
     epoch = 0
     if args.load_checkpoint:
-        checkpoint = torch.load(args.load_checkpoint)  # Load a checkpoint after 10 epochs
+        checkpoint = torch.load(args.load_checkpoint)
         ssd.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         global_step = checkpoint['global_step']
@@ -67,7 +75,7 @@ def train(args):
             (batch_matched_gts,
             batch_matched_labels,
             batch_loc_targets,
-            batch_cls_targets) = encoder.encode_batch(batch_gt[:, :, :4], batch_gt[:, :, 4])
+            batch_cls_targets) = encoder.encode_batch(batch_gt)
 
             optimizer.zero_grad()
             loc_preds, cls_preds = ssd(batch_img)
@@ -88,7 +96,7 @@ def train(args):
                 'global_step': global_step,
                 'model_state_dict': ssd.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-            }, f"{args.checkpoint_folder}/ssd_epoch_{epoch}.pth")
+            }, f"{args.checkpoint_folder}/ssd_{start_time.strftime('%Y-%m-%dT%H-%M-%S')}_epoch_{epoch}.pth")
 
     if args.save_log:
         summary_writer.close()
