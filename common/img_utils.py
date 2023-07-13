@@ -29,7 +29,10 @@ def batch_tensor_to_images(batch_img_tensor, batch_bbox_tensor, batch_label_tens
         batch_bboxes = batch_bbox_tensor.cpu().numpy()
         batch_labels = batch_label_tensor.cpu().numpy().astype(np.uint8)
         for i in range(imgs.shape[0]):
-            imgs[i] = draw_bounding_boxes_np(imgs[i], batch_bboxes[i], batch_labels[i], class_names,
+            pos_mask = batch_labels[i] > 0
+            bboxes = batch_bboxes[i][pos_mask]
+            labels = batch_labels[i][pos_mask]
+            imgs[i] = draw_bounding_boxes_np(imgs[i], bboxes, labels, class_names,
                                              color=color,
                                              thickness=thickness)
     return imgs
@@ -42,10 +45,10 @@ def tensor_to_image(img_tensor, bbox_tensor, label_tensor,
                     thickness=2):
     img = img_tensor.permute(1, 2, 0).contiguous().cpu().numpy() * 255
     img = img.astype(np.uint8)
-
     if draw_bbox:
-        bboxes = bbox_tensor.cpu().numpy()
-        labels = label_tensor.cpu().numpy().astype(np.uint8)
+        pos_mask = label_tensor > 0
+        bboxes = bbox_tensor[pos_mask].cpu().numpy()
+        labels = label_tensor[pos_mask].cpu().numpy().astype(np.uint8)
         img = draw_bounding_boxes_np(img, bboxes, labels, class_names,
                                      color=color,
                                      thickness=thickness)

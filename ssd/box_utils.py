@@ -1,12 +1,31 @@
 import torch
 
 
+def batch_point_form(batch_center_size_boxes, clip=False):
+    """Convert center_size_boxes (cx, cy, width, height) to (xmin, ymin, xmax, ymax). Point form may
+    extend beyond 1. Optionally this can be clipped by passing clip=True.
+
+    Args:
+        batch_center_size_boxes (tensor): Shape(B, N, 4) boxes in center-size form.
+        clip (bool, optional): Defaults to False.
+    """
+    x_min = batch_center_size_boxes[:, :, 0] - batch_center_size_boxes[:, :, 2] / 2
+    y_min = batch_center_size_boxes[:, :, 1] - batch_center_size_boxes[:, :, 3] / 2
+    x_max = batch_center_size_boxes[:, :, 0] + batch_center_size_boxes[:, :, 2] / 2
+    y_max = batch_center_size_boxes[:, :, 1] + batch_center_size_boxes[:, :, 3] / 2
+
+    if clip:
+        return torch.stack([x_min, y_min, x_max, y_max], axis=2).clip(0, 1)
+    return torch.stack([x_min, y_min, x_max, y_max], axis=2)
+
+
 def point_form(center_size_boxes, clip=False):
     """Convert center_size_boxes (cx, cy, width, height) to (xmin, ymin, xmax, ymax). Point form may
     extend beyond 1. Optionally this can be clipped by passing clip=True.
 
     Args:
-        center_size_boxes (tensor): boxes in center-size form
+        center_size_boxes (tensor): Shape(N, 4) boxes in center-size form.
+        clip (bool, optional): Defaults to False.
     """
     x_min = center_size_boxes[:, 0] - center_size_boxes[:, 2] / 2
     y_min = center_size_boxes[:, 1] - center_size_boxes[:, 3] / 2
@@ -17,13 +36,30 @@ def point_form(center_size_boxes, clip=False):
         return torch.stack([x_min, y_min, x_max, y_max], axis=1).clip(0, 1)
     return torch.stack([x_min, y_min, x_max, y_max], axis=1)
 
+def batch_center_size_form(batch_point_form_boxes, clip=False):
+    """Convert point_form_boxes (xmin, ymin, xmax, ymax) to (cx, cy, width, height). Center and size
+    may extend beyond 1. Optionally this can be clipped by passing clip=True.
+
+    Args:
+        batch_point_form_boxes (tensor): Shape(B, N, 4) boxes in point form (xmin, ymin, xmax, ymax)
+        clip (bool, optional): Defaults to False.
+    """
+    x = (batch_point_form_boxes[:, :, 0] + batch_point_form_boxes[:, :, 2]) / 2
+    y = (batch_point_form_boxes[:, :, 1] + batch_point_form_boxes[:, :, 3]) / 2
+    width = batch_point_form_boxes[:, :, 2] - batch_point_form_boxes[:, :, 0]
+    height = batch_point_form_boxes[:, :, 3] - batch_point_form_boxes[:, :, 1]
+
+    if clip:
+        return torch.stack([x, y, width, height], axis=2).clip(0, 1)
+    return torch.stack([x, y, width, height], axis=2)
+
 
 def center_size_form(point_form_boxes, clip=False):
     """Convert point_form_boxes (xmin, ymin, xmax, ymax) to (cx, cy, width, height). Center and size
     may extend beyond 1. Optionally this can be clipped by passing clip=True.
 
     Args:
-        point_form_boxes (tensor): boxes in point form (xmin, ymin, xmax, ymax)
+        point_form_boxes (tensor): Shape(N, 4) boxes in point form (xmin, ymin, xmax, ymax)
     """
     x = (point_form_boxes[:, 0] + point_form_boxes[:, 2]) / 2
     y = (point_form_boxes[:, 1] + point_form_boxes[:, 3]) / 2
@@ -41,8 +77,8 @@ def intersect(box_a, box_b):
     [B,2] -> [1,B,2] -> [A,B,2]
     Then we compute the area of intersect between box_a and box_b.
     Args:
-      box_a: (tensor) bounding boxes, Shape: [A, 4].
-      box_b: (tensor) bounding boxes, Shape: [B, 4].
+      box_a (tensor): Shape(A, 4) bounding boxes.
+      box_b (tensor): Shape(B, 4) bounding boxes.
     Return:
       (tensor) intersection area, Shape: [A,B].
     """

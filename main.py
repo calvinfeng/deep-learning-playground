@@ -4,6 +4,7 @@ from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 import numpy as np
+import pdb
 
 from common.img_utils import batch_tensor_to_images
 from data.data_utils import collate_ground_truth_boxes
@@ -93,7 +94,17 @@ def test_tensorboard():
         images = batch_tensor_to_images(batch_img, batch_gt[:, :, :4], batch_gt[:, :, 4], class_names)
         summary_writer.add_images("ground_truths", images,
                                   global_step=global_step, dataformats='NHWC')
+
+        batch_matched_gts, batch_matched_labels, batch_loc_targets, batch_cls_targets = encoder.batch_encode(batch_gt)
+
+        batch_box_preds = encoder.batch_decode_localization(batch_loc_targets)
+        batch_label_preds = encoder.batch_decode_classification(batch_cls_targets)
+        images = batch_tensor_to_images(batch_img, batch_box_preds, batch_label_preds, class_names)
+        summary_writer.add_images("detections", images,
+                                  global_step=global_step, dataformats='NHWC')
+
         global_step += 1
+    summary_writer.close()
 
 if __name__ == "__main__":
     test_tensorboard()

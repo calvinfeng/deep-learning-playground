@@ -1,8 +1,15 @@
 import torch
 import torch.nn.functional as F
 from typing import Dict, Tuple, List
+import pdb
 
-from ssd.box_utils import point_form, center_size_form, jaccard
+from ssd.box_utils import (
+    batch_point_form,
+    point_form,
+    batch_center_size_form,
+    center_size_form,
+    jaccard,
+)
 
 
 class TargetEncoder:
@@ -94,8 +101,8 @@ class TargetEncoder:
         P is the number of prior boxes.
 
         Args:
-            matched_gts (tensor): (P, 4) in point form.
-            prior_boxes (tensor): (P, 4) in point form.
+            matched_gts (tensor): Shape(P, 4) in point form.
+            prior_boxes (tensor): Shape(P, 4) in point form.
         """
         # Convert to center form.
         matched_gts = center_size_form(matched_gts)
@@ -119,9 +126,9 @@ class TargetEncoder:
         C is the number of classes excluding background.
 
         Returns:
-            matched_gts (tensor): (P, 4) Ground truth boxes matched to each prior box.
-            loc_targets (tensor): (P, 4) Location targets for each anchor box.
-            cls_targets (tensor): (P, C+1) Class targets for each anchor box.
+            matched_gts (tensor): Shape(P, 4) Ground truth boxes matched to each prior box.
+            loc_targets (tensor): Shape(P, 4) Location targets for each anchor box.
+            cls_targets (tensor): Shape(P, C+1) Class targets for each anchor box.
         """
         # Priors are anchor boxes in [x_min, y_min, x_min, y_min] format with relative coordinate.
         # Ground truth are bounding boxes in [x_min, y_min, x_max, y_max] format with relative coordinate.
@@ -137,17 +144,17 @@ class TargetEncoder:
 
         return matched_gts, matched_labels, loc_targets, cls_targets
 
-    def encode_batch(self, batch_gt):
+    def batch_encode(self, batch_gt):
         """Encode batch ground truth boxes and labels for training.
 
         Args:
-            batch_gt (tensor): Tensor of shape (B, N, 5) in point form, [x_min, y_min, x_max, y_max, label].
+            batch_gt (tensor): Shape(B, N, 5) ground truth in point form, [x_min, y_min, x_max, y_max, label].
 
         B is the batch size.
         N is the number of objects in each sample.
 
         Returns:
-            batch_matched_gts: (B, P, 4) Batch ground truth boxes matched to each prior box.
+            batch_matched_gts: Shape(B, P, 4) Batch ground truth boxes matched to each prior box.
             batch_loc_targets: Batch location targets for each anchor box.
             batch_cls_targets: Batch class targets for each anchor box.
         """
@@ -177,10 +184,10 @@ class TargetEncoder:
         """Decode localization offsets back to relative coordinates.
 
         Args:
-            loc (tensor): (P, 4) Localization offsets for each prior box.
+            loc (tensor): Shape(P, 4) Localization offsets for each prior box.
 
         Returns:
-            boxes (tensor): (P, 4) bounding boxes in point form (xmin, ymin, xmax, ymax).
+            boxes (tensor): Shape(P, 4) bounding boxes in point form (xmin, ymin, xmax, ymax).
         """
         # Offsets are computed in center size form.
         priors = center_size_form(self.prior_boxes_point_form)
@@ -196,15 +203,50 @@ class TargetEncoder:
         # Convert boxes to point form.
         return point_form(boxes)
 
+    def batch_decode_localization(self, batch_loc):
+        """Decode localization offsets back to relative coordinates.
+
+        Args:
+            batch_loc (tensor): Shape(N, P, 4) Localization offsets for each prior box.
+
+        Returns:
+            boxes (tensor): Shape(N, P, 4) bounding boxes in point form (xmin, ymin, xmax, ymax).
+        """
+        # Offsets are computed in center size form.
+        priors = batch_center_size_form(self.prior_boxes_point_form.expand(batch_loc.size(0), -1, 4))
+        delta_xy = batch_loc[:, :, :2]
+        delta_wh = batch_loc[:, :, 2:]
+        # Decode the center size form using offsets and variances.
+        variance = torch.Tensor(self.offset_variances).to(batch_loc.device)
+        boxes = torch.cat([
+            delta_xy * variance[:2] * priors[:, :, 2:] + priors[:, :, :2],
+            torch.exp(delta_wh * variance[2:]) * priors[:, :, 2:]
+        ], dim=2)
+        # Convert boxes to point form.
+        return batch_point_form(boxes)
+
     def decode_classification(self, cls):
         """Decode classification logits to class labels as integers.
 
         Args:
-            cls (tensor): (P, C+1) Class logits for each prior box.
+            cls (tensor): Shape(P, C+1) Class logits for each prior box.
 
         Returns:
-            cls (tensor): (P, C+1) Class probabilities for each prior box.
+            labels (tensor): Shape(P,) Class labels for each prior box.
         """
         probs = F.softmax(cls, dim=1)
         labels = torch.argmax(probs, dim=1)
+        return labels
+
+    def batch_decode_classification(self, batch_cls):
+        """Decode classification logits to class labels as integers.
+
+        Args:
+            batch_cls (tensor): (P, C+1) Class logits for each prior box.
+
+        Returns:
+            labels (tensor): (P, C+1) Class probabilities for each prior box.
+        """
+        probs = F.softmax(batch_cls, dim=2)
+        labels = torch.argmax(probs, dim=2)
         return labels
