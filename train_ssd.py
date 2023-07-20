@@ -4,14 +4,16 @@ import os
 import torch
 import torch.optim as optim
 import pdb
+
 from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
+from common.img_utils import batch_tensor_to_images
 from data.data_utils import collate_ground_truth_boxes
-from data.voc_dataset import VOCDataset
+from data.voc_dataset import VOCDataset, VOC_CLASSES
 from ssd.anchor import AnchorGenerator
-from ssd.box_utils import point_form
+from ssd.box_utils import point_form, non_maximum_suppress
 from ssd.encoder import TargetEncoder
 from ssd.loss import MultiBoxLoss
 from ssd.model import SingleShotDetector
@@ -54,7 +56,7 @@ def train(args):
 
     summary_writer = None
     start_time = datetime.datetime.now()
-    if args.save_log:
+    if args.tensorboard:
         summary_writer = SummaryWriter(
             log_dir=f"{args.log_dir}/ssd_{start_time.strftime('%Y-%m-%dT%H-%M-%S')}")
 
@@ -67,26 +69,51 @@ def train(args):
         global_step = checkpoint['global_step']
         epoch = checkpoint['epoch']
 
+    class_names = {i + 1: VOC_CLASSES[i] for i in range(len(VOC_CLASSES))}
+    class_names[0] = "background"
+
     for _ in range(args.num_epochs):
-        for batch_img, batch_gt in tqdm(train_loader):
-            batch_img = batch_img.to(device)
+        for batch_imgs, batch_gt in tqdm(train_loader):
+            batch_imgs = batch_imgs.to(device)
             batch_gt = batch_gt.to(device)
 
-            (batch_matched_gts,
-            batch_matched_labels,
-            batch_loc_targets,
-            batch_cls_targets) = encoder.encode_batch(batch_gt)
+            (
+                batch_matched_gts,
+                batch_matched_labels,
+                batch_loc_targets,
+                batch_cls_targets
+            ) = encoder.batch_encode(batch_gt)
 
             optimizer.zero_grad()
-            loc_preds, cls_preds = ssd(batch_img)
-            loss = multibox_loss(loc_preds, cls_preds, batch_loc_targets, batch_cls_targets)
+            batch_loc_preds, batch_cls_preds = ssd(batch_imgs)
+            loss = multibox_loss(batch_loc_preds, batch_cls_preds, batch_loc_targets, batch_cls_targets)
             if summary_writer:
                 summary_writer.add_scalar("loss/train", loss, global_step)
             loss.backward()
             optimizer.step()
             global_step += 1
-            if global_step % 10 == 0:
-                break
+
+            if args.tensorboard and global_step % args.visualize_interval == 0:
+                batch_box_preds = encoder.batch_decode_localization(batch_loc_preds)
+                batch_score_preds, batch_label_preds = encoder.batch_decode_classification(batch_cls_preds)
+                (
+                    batch_nms_box_preds,
+                    batch_nms_score_preds,
+                    batch_nms_label_preds,
+                ) = non_maximum_suppress(batch_box_preds, batch_score_preds, batch_label_preds, iou_threshold=0.5, score_threshold=0.01)
+                images = batch_tensor_to_images(batch_imgs,
+                                                batch_nms_box_preds.detach(),
+                                                batch_nms_label_preds.detach(),
+                                                class_names,
+                                                color=(0, 255, 0))
+                summary_writer.add_images("detections", images,
+                                          global_step=global_step,
+                                          dataformats='NHWC')
+
+                images = batch_tensor_to_images(batch_imgs, batch_gt[:, :, :4], batch_gt[:, :, 4], class_names)
+                summary_writer.add_images("ground_truths", images,
+                                          global_step=global_step,
+                                          dataformats='NHWC')
 
         epoch += 1
         if epoch % args.checkpoint_interval == 0:
@@ -98,24 +125,26 @@ def train(args):
                 'optimizer_state_dict': optimizer.state_dict(),
             }, f"{args.checkpoint_folder}/ssd_{start_time.strftime('%Y-%m-%dT%H-%M-%S')}_epoch_{epoch}.pth")
 
-    if args.save_log:
+    if args.tensorboard:
         summary_writer.close()
 
 
 args = argparse.ArgumentParser(description="Single Shot Detector Training With PyTorch")
-args.add_argument("--batch_size", default=16, type=int, help="Batch size for training")
-args.add_argument("--lr", "--learning_rate", default=1e-3, type=float, help="Learning rate")
+# Training settings
+args.add_argument("--batch-size", default=16, type=int, help="Batch size for training")
+args.add_argument("--lr", "--learning-rate", default=1e-3, type=float, help="Learning rate")
 args.add_argument("--momentum", default=0.9, type=float, help="Momentum value for optim")
-args.add_argument("--weight_decay", default=5e-4, type=float, help="Weight decay for SGD")
-args.add_argument("--num_epochs", default=100, type=int, help="Number of epochs to train for")
-args.add_argument("--num_workers", default=1, type=int, help="Number of workers used in dataloading")
-
-args.add_argument("--load_checkpoint", default=None, type=str, help="Path to model checkpoint")
-args.add_argument("--checkpoint_folder", default="checkpoints", type=str, help="Directory for saving checkpoint models")
-args.add_argument("--checkpoint_interval", default=10, type=int, help="Number of epochs between saving checkpoints")
-
-args.add_argument("--save_log", action='store_true', help="Use tensorboard for loss visualization")
-args.add_argument("--log_dir", default="logs", type=str, help="Directory for tensorboard logs")
+args.add_argument("--weight-decay", default=5e-4, type=float, help="Weight decay for SGD")
+args.add_argument("--num-epochs", default=100, type=int, help="Number of epochs to train for")
+args.add_argument("--num-workers", default=1, type=int, help="Number of workers used in dataloading")
+# Checkpoints settings
+args.add_argument("--load-checkpoint", default=None, type=str, help="Path to model checkpoint")
+args.add_argument("--checkpoint-folder", default="checkpoints", type=str, help="Directory for saving checkpoint models")
+args.add_argument("--checkpoint-interval", default=10, type=int, help="Number of epochs between saving checkpoints")
+# Tensorboard settings
+args.add_argument("--tensorboard", action='store_true', help="Use tensorboard for loss visualization")
+args.add_argument("--log-dir", default="logs", type=str, help="Directory for tensorboard logs")
+args.add_argument("--visualize-interval", default=1, type=int, help="Number of steps between visualizing images")
 
 
 if __name__ == "__main__":

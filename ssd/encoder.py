@@ -233,10 +233,11 @@ class TargetEncoder:
 
         Returns:
             labels (tensor): Shape(P,) Class labels for each prior box.
+            scores (tensor): Shape(P,) Class scores for each prior box.
         """
         probs = F.softmax(cls, dim=1)
-        labels = torch.argmax(probs, dim=1)
-        return labels
+        scores, labels = torch.max(probs, dim=1)
+        return scores, labels
 
     def batch_decode_classification(self, batch_cls):
         """Decode classification logits to class labels as integers.
@@ -245,8 +246,9 @@ class TargetEncoder:
             batch_cls (tensor): (P, C+1) Class logits for each prior box.
 
         Returns:
-            labels (tensor): (P, C+1) Class probabilities for each prior box.
+            batch_labels (tensor): (P, C+1) Class probabilities for each prior box.
+            batch_scores (tensor): (P, C+1) Class scores for each prior box.
         """
         probs = F.softmax(batch_cls, dim=2)
-        labels = torch.argmax(probs, dim=2)
-        return labels
+        batch_scores, batch_labels = torch.max(probs, dim=2)
+        return batch_scores, batch_labels

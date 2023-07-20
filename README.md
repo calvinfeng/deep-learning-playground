@@ -4,8 +4,8 @@
 
 - [ ] Parallel encoding
 - [ ] Data augmentation logic
-- [ ] Tensorboard Visualizer
-- [ ] Implement NMS for decoding
+- [x] Tensorboard Visualizer
+- [x] Implement NMS for decoding
 - [x] SSD
 - [ ] CenterNet
 - [ ] Swin Transformer
