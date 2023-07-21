@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
-import pdb
 from ssd.config import DEFAULT_NUM_BOXES, DEFAULT_FEATURE_MAP_NAMES
 
 
@@ -11,10 +10,9 @@ class SingleShotDetector(nn.Module):
                        feature_map_names=DEFAULT_FEATURE_MAP_NAMES,
                        feature_map_num_boxes=DEFAULT_NUM_BOXES):
         super(SingleShotDetector, self).__init__()
-        # We reserve one class for background.
         self.num_classes = num_classes
-        self.base = torchvision.models.vgg16(pretrained=True).features
-        # Change stride from 2 to 1
+        self.base = torchvision.models.vgg16(weights=torchvision.models.VGG16_Weights.DEFAULT).features
+        # Change stride from 2 to 1 to reduce down-sampling.
         self.base[30] = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
         # Define auxiliary layers
         self.aux_convs = nn.ModuleDict({
