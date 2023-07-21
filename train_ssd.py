@@ -1,5 +1,7 @@
 import argparse
+import coloredlogs
 import datetime
+import logging
 import os
 import torch
 import torch.optim as optim
@@ -17,6 +19,9 @@ from ssd.box_utils import point_form, non_maximum_suppress
 from ssd.encoder import TargetEncoder
 from ssd.loss import MultiBoxLoss
 from ssd.model import SingleShotDetector
+
+logger = logging.getLogger(__name__)
+coloredlogs.install(level='DEBUG', logger=logger)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -62,12 +67,14 @@ def train(args):
 
     global_step = 0
     epoch = 0
+    logger.info(f"load checkpoint is set to {args.load_checkpoint}")
     if args.load_checkpoint:
         checkpoint = torch.load(args.load_checkpoint)
         ssd.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         global_step = checkpoint['global_step']
         epoch = checkpoint['epoch']
+        logger.info(f"restored checkpoint to epoch={epoch} and global_step={global_step}")
 
     class_names = {i + 1: VOC_CLASSES[i] for i in range(len(VOC_CLASSES))}
     class_names[0] = "background"
@@ -87,8 +94,10 @@ def train(args):
             optimizer.zero_grad()
             batch_loc_preds, batch_cls_preds = ssd(batch_imgs)
             loss = multibox_loss(batch_loc_preds, batch_cls_preds, batch_loc_targets, batch_cls_targets)
-            if summary_writer:
+
+            if args.tensorboard and global_step % args.log_interval == 0:
                 summary_writer.add_scalar("loss/train", loss, global_step)
+
             loss.backward()
             optimizer.step()
             global_step += 1
@@ -117,13 +126,13 @@ def train(args):
 
         epoch += 1
         if epoch % args.checkpoint_interval == 0:
-            os.makedirs(args.checkpoint_folder, exist_ok=True)
+            os.makedirs(args.checkpoint_dir, exist_ok=True)
             torch.save({
                 'epoch': epoch,
                 'global_step': global_step,
                 'model_state_dict': ssd.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-            }, f"{args.checkpoint_folder}/ssd_{start_time.strftime('%Y-%m-%dT%H-%M-%S')}_epoch_{epoch}.pth")
+            }, f"{args.checkpoint_dir}/ssd_{start_time.strftime('%Y-%m-%dT%H-%M-%S')}_epoch_{epoch}.pth")
 
     if args.tensorboard:
         summary_writer.close()
@@ -139,12 +148,13 @@ args.add_argument("--num-epochs", default=100, type=int, help="Number of epochs 
 args.add_argument("--num-workers", default=1, type=int, help="Number of workers used in dataloading")
 # Checkpoints settings
 args.add_argument("--load-checkpoint", default=None, type=str, help="Path to model checkpoint")
-args.add_argument("--checkpoint-folder", default="checkpoints", type=str, help="Directory for saving checkpoint models")
+args.add_argument("--checkpoint-dir", default="checkpoints", type=str, help="Directory for saving checkpoint models")
 args.add_argument("--checkpoint-interval", default=10, type=int, help="Number of epochs between saving checkpoints")
 # Tensorboard settings
 args.add_argument("--tensorboard", action='store_true', help="Use tensorboard for loss visualization")
 args.add_argument("--log-dir", default="logs", type=str, help="Directory for tensorboard logs")
-args.add_argument("--visualize-interval", default=1, type=int, help="Number of steps between visualizing images")
+args.add_argument("--log-interval", default=100, type=int, help="Number of steps between logging loss")
+args.add_argument("--visualize-interval", default=100, type=int, help="Number of steps between visualizing images")
 
 
 if __name__ == "__main__":

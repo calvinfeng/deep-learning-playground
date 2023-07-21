@@ -147,6 +147,12 @@ def non_maximum_suppress(batch_boxes, batch_scores, batch_labels, iou_threshold=
         scores = batch_scores[i]
         labels = batch_labels[i]
 
+        # Select for non-background prior boxes.
+        pos_mask = labels > 0
+        boxes = boxes[pos_mask]
+        scores = scores[pos_mask]
+        labels = labels[pos_mask]
+
         selected_indices = ops.nms(boxes, scores, iou_threshold)
         nms_boxes = boxes[selected_indices]
         nms_scores = scores[selected_indices]
