@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
-from typing import Dict, Tuple, List
-import pdb
+from typing import Tuple
+
 
 from ssd.box_utils import (
     batch_point_form,
@@ -15,21 +15,18 @@ from ssd.box_utils import (
 class TargetEncoder:
     """Encode ground truth boxes and labels for training by matching them with anchor boxes.
     """
-    def __init__(self, prior_boxes, image_size=(300, 300),
-                                    num_classes=21,
+    def __init__(self, prior_boxes, num_classes=21,
                                     iou_threshold=0.50,
                                     offset_variances=(0.1, 0.1, 0.2, 0.2)):
         """Initialize target encoder.
 
         Args:
             prior_boxes (tensor): Prior boxes in point form [xmin, ymin, xmax, ymax] of shape (num_priors, 4).
-            image_size (tuple, optional): Defaults to (300, 300).
             num_classes (int, optional): Defaults to 20.
             iou_threshold (float, optional): Defaults to 0.50.
             offset_variances (tuple, optional): Defaults to (0.1, 0.1, 0.2, 0.2).
         """
         self.prior_boxes_point_form = prior_boxes
-        self.image_size: Tuple[int, int] = image_size
         self.num_classes = num_classes
         self.iou_threshold = iou_threshold
         self.offset_variances = offset_variances
