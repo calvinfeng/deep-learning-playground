@@ -45,7 +45,7 @@ class KeypointHeatmapEncoder:
         center_cls_heatmap: torch.Tensor,
         center_reg_heatmap: torch.Tensor,
     ):
-        """Populate target box classification and regression heatmaps and mask.
+        """Populate classification and regression keypoint heatmaps and mask.
 
         Args:
             boxes_uv (torch.Tensor): List of boxes in feature map uv coordinate
@@ -54,8 +54,6 @@ class KeypointHeatmapEncoder:
             center_mask (torch.Tensor): Classification & regression loss mask
             center_cls_heatmap (torch.Tensor): Classification keypoint heatmap
             center_reg_heatmap (torch.Tensor): Regression keypoint heatmap
-            class_idx (int): Class index
-            heatmap_shape (Tuple[int, int]): Shape of feature map
 
         Returns:
             torch.Tensor: center_cls_heatmap
