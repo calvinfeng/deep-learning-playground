@@ -10,6 +10,8 @@ from common.img_utils import batch_tensor_to_images
 from data.data_utils import collate_ground_truth_boxes
 from data.voc_dataset import VOCDataset, VOC_CLASSES
 
+from centernet.encoder import KeypointHeatmapEncoder
+
 from ssd.anchor import AnchorGenerator
 from ssd.box_utils import point_form
 from ssd.encoder import TargetEncoder
@@ -106,5 +108,15 @@ def test_tensorboard():
         global_step += 1
     summary_writer.close()
 
+
+def test_keypoint_encoding():
+    dataset = VOCDataset("trainval")
+    encoder = KeypointHeatmapEncoder(heatmap_shape=(37,37))
+
+    img_tensor, bboxes = dataset[1337]
+    gt_boxes = bboxes[:, :4]
+    gt_labels = bboxes[:, 4]
+    encoder.encode(gt_boxes, gt_labels.int())
+
 if __name__ == "__main__":
-    test_tensorboard()
+    test_keypoint_encoding()

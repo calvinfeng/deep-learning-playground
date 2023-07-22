@@ -1,11 +1,21 @@
 import torch
 from typing import Tuple
+import numpy as np
+import pdb
+
 
 class KeypointHeatmapEncoder:
     def __init__(self, heatmap_shape: Tuple[int, int], num_classes: int=21, std: float=0.05):
         self.heatmap_shape = heatmap_shape
         self.num_classes = num_classes
         self.std = std
+        # Precompute indices grid with numpy
+        H, W = self.heatmap_shape
+        u_indices = np.arange(W, dtype=np.float32)
+        v_indices = np.arange(H, dtype=np.float32)
+        u_indices, v_indices = np.meshgrid(u_indices, v_indices)
+        self.u_indices = torch.from_numpy(u_indices)
+        self.v_indices = torch.from_numpy(v_indices)
 
     def encode(self, gt_boxes: torch.Tensor, gt_labels: torch.Tensor):
         H, W = self.heatmap_shape
@@ -71,22 +81,18 @@ class KeypointHeatmapEncoder:
 
             uf, vf = torch.floor(u), torch.floor(v)
 
-            u_indices = torch.arange(W, dtype=torch.float32)
-            v_indices = torch.arange(H, dtype=torch.float32)
-            u_indices, v_indices = torch.meshgrid(u_indices, v_indices)
-
             # Get the gaussian
-            gaussian_xterm = torch.pow(u_indices - uf, 2) / ((2 * torch.pow(x_std, 2)))
-            gaussian_yterm = torch.pow(v_indices - vf, 2) / ((2 * torch.pow(y_std, 2)))
+            gaussian_xterm = torch.pow(self.u_indices - uf, 2) / ((2 * torch.pow(x_std, 2)))
+            gaussian_yterm = torch.pow(self.v_indices - vf, 2) / ((2 * torch.pow(y_std, 2)))
             gaussian = torch.exp(-1 * (gaussian_xterm + gaussian_yterm))
 
-            center_cls_heatmap[:, :, label] = torch.max(center_cls_heatmap[:, :, label], gaussian)
+            center_cls_heatmap[label, :, :] = torch.max(center_cls_heatmap[label, :, :], gaussian)
 
             if 0 <= uf < W and 0 <= vf < H:
                 center_mask[int(vf), int(uf)] = 1.0
-                center_reg_heatmap[int(vf), int(uf), 0] = u - uf
-                center_reg_heatmap[int(vf), int(uf), 1] = v - vf
-                center_reg_heatmap[int(vf), int(uf), 2] = width
-                center_reg_heatmap[int(vf), int(uf), 3] = height
+                center_reg_heatmap[0, int(vf), int(uf)] = u - uf
+                center_reg_heatmap[1, int(vf), int(uf)] = v - vf
+                center_reg_heatmap[2, int(vf), int(uf)] = width
+                center_reg_heatmap[3, int(vf), int(uf)] = height
 
         return center_mask, center_cls_heatmap, center_reg_heatmap

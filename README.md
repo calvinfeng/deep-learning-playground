@@ -2,12 +2,21 @@
 
 ## TODO
 
-- [ ] Parallel encoding
+- [ ] Parallel batch encoding for all models
 - [ ] Data augmentation logic
 - [x] Tensorboard Visualizer
 - [x] Implement NMS for decoding
 - [x] SSD
-- [ ] CenterNet
+  - [x] Anchor Generator
+  - [x] Encoder
+  - [x] Decoder
+  - [x] Loss
+  - [x] Training Loop
+- [x] CenterNet
+  - [x] Keypoint Encoder
+  - [ ] Keypoint Decoder
+  - [ ] Loss
+  - [ ] Training Loop
 - [ ] Swin Transformer
 - [ ] ResNeXT
 
