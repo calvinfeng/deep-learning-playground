@@ -14,7 +14,7 @@
   - [x] Training Loop
 - [x] CenterNet
   - [x] Keypoint Encoder
-  - [ ] Keypoint Decoder
+  - [x] Keypoint Decoder
   - [ ] Loss
   - [ ] Training Loop
 - [ ] Swin Transformer

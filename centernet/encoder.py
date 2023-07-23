@@ -19,6 +19,24 @@ class KeypointHeatmapEncoder:
         self.u_indices = torch.from_numpy(u_indices)
         self.v_indices = torch.from_numpy(v_indices)
 
+    def batch_encode(self, batch_gt):
+        batch_size = batch_gt.size(0)
+        batch_gt_boxes, batch_gt_labels = batch_gt[:, :, :4], batch_gt[:, :, 4]
+        batch_center_mask, batch_center_cls_heatmap, batch_center_reg_heatmap = [], [], []
+        for i in range(batch_size):
+            gt_boxes = batch_gt_boxes[i]
+            gt_labels = batch_gt_labels[i]
+            non_background = gt_labels > 0 # Remove padded values.
+            center_mask, center_cls_heatmap, center_reg_heatmap = self.encode(gt_boxes[non_background],
+                                                                              gt_labels[non_background])
+            batch_center_mask.append(center_mask)
+            batch_center_cls_heatmap.append(center_cls_heatmap)
+            batch_center_reg_heatmap.append(center_reg_heatmap)
+        batch_center_mask = torch.stack(batch_center_mask, dim=0)
+        batch_center_cls_heatmap = torch.stack(batch_center_cls_heatmap, dim=0)
+        batch_center_reg_heatmap = torch.stack(batch_center_reg_heatmap, dim=0)
+        return batch_center_mask, batch_center_cls_heatmap, batch_center_reg_heatmap
+
     def encode(self, gt_boxes: torch.Tensor, gt_labels: torch.Tensor):
         H, W = self.heatmap_shape
         center_cls_heatmap = torch.zeros((self.num_classes, H, W))
@@ -102,6 +120,41 @@ class KeypointHeatmapEncoder:
                 center_reg_heatmap[3, int(vf), int(uf)] = height / H # Regress relative height
 
         return center_mask, center_cls_heatmap, center_reg_heatmap
+
+    def batch_decode(self, batch_center_cls_heatmap, batch_center_reg_heatmap, num_detections=20):
+        batch_size = batch_center_cls_heatmap.size(0)
+        sig_heatmap = F.sigmoid(batch_center_cls_heatmap)
+        maxpool_heatmap = F.max_pool2d(sig_heatmap, kernel_size=5, stride=1, padding=2)
+        peak_mask = sig_heatmap == maxpool_heatmap
+        peaks = maxpool_heatmap * peak_mask
+
+        batch_keypoint_scores, batch_keypoint_labels = torch.max(peaks, dim=1)
+        uv_indices = torch.stack([self.u_indices, self.v_indices], dim=-1)
+        batch_uv_indices = uv_indices.expand(batch_size, -1, -1, -1)
+
+        batch_labels = batch_keypoint_labels.view(batch_size, -1)
+        batch_scores = batch_keypoint_scores.view(batch_size, -1)
+
+        batch_center_offset = batch_center_reg_heatmap[:, :2, :, :].permute(0, 2, 3, 1).view(batch_size, -1, 2)
+        batch_center_wh = batch_center_reg_heatmap[:, 2:, :, :].permute(0, 2, 3, 1).view(batch_size, -1, 2)
+
+        H, W = self.heatmap_shape
+        batch_uv_indices = batch_uv_indices.view(batch_size, -1, 2)
+
+        batch_x_min = (batch_uv_indices[:, :, 0] + batch_center_offset[:, :, 0] - batch_center_wh[:, :, 0] * W / 2.0) / W
+        batch_y_min = (batch_uv_indices[:, :, 1] + batch_center_offset[:, :, 1] - batch_center_wh[:, :, 1] * H / 2.0) / H
+        batch_x_max = (batch_uv_indices[:, :, 0] + batch_center_offset[:, :, 0] + batch_center_wh[:, :, 0] * W / 2.0) / W
+        batch_y_max = (batch_uv_indices[:, :, 1] + batch_center_offset[:, :, 1] + batch_center_wh[:, :, 1] * H / 2.0) / H
+
+        batch_decoded_boxes = torch.stack([batch_x_min, batch_y_min, batch_x_max, batch_y_max], axis=2)
+        indices_sorted_by_score = torch.argsort(batch_scores, descending=True, dim=1)
+
+        batch_top_scores = batch_scores.gather(1, indices_sorted_by_score[:, :num_detections])
+        batch_top_labels = batch_labels.gather(1, indices_sorted_by_score[:, :num_detections])
+        # Indices need to be expanded to match the shape of batch_decoded_boxes
+        batch_top_boxes = batch_decoded_boxes.gather(1, indices_sorted_by_score[:, :num_detections].unsqueeze(-1).expand(-1, -1, 4))
+
+        return batch_top_boxes, batch_top_scores, batch_top_labels
 
     def decode(self, center_cls_heatmap, center_reg_heatmap, num_detections=20):
         """Decode keypoint heatmaps into detections.
