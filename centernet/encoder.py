@@ -1,6 +1,8 @@
-import torch
-from typing import Tuple
 import numpy as np
+import torch
+import torch.nn.functional as F
+from typing import Tuple
+
 import pdb
 
 
@@ -34,7 +36,7 @@ class KeypointHeatmapEncoder:
             center_mask,
             center_cls_heatmap,
             center_reg_heatmap,
-        ) = self.populate_heatmaps(
+        ) = self._populate_heatmaps(
             torch.stack([center_u, center_v, widths, heights], dim=1),
             gt_labels,
             x_stds,
@@ -45,7 +47,7 @@ class KeypointHeatmapEncoder:
         )
         return center_mask, center_cls_heatmap, center_reg_heatmap
 
-    def populate_heatmaps(
+    def _populate_heatmaps(
         self,
         boxes_uv: torch.Tensor,
         labels: torch.Tensor,
@@ -58,12 +60,12 @@ class KeypointHeatmapEncoder:
         """Populate classification and regression keypoint heatmaps and mask.
 
         Args:
-            boxes_uv (torch.Tensor): List of boxes in feature map uv coordinate
-            x_stds (torch.Tensor): Gaussian standard deivation for x-axis which is u
-            y_stds (torch.Tensor): Gaussian standard deviation for y-axis which is v
-            center_mask (torch.Tensor): Classification & regression loss mask
-            center_cls_heatmap (torch.Tensor): Classification keypoint heatmap
-            center_reg_heatmap (torch.Tensor): Regression keypoint heatmap
+            boxes_uv (torch.Tensor): Shape(N, 4) List of boxes in feature map uv coordinate
+            x_stds (torch.Tensor): Shape(N,) Gaussian standard deivation for x-axis which is u
+            y_stds (torch.Tensor): Shape(N,) Gaussian standard deviation for y-axis which is v
+            center_mask (torch.Tensor): Shape(H, W) Classification & regression loss mask
+            center_cls_heatmap (torch.Tensor): Shape(num_classes, H, W) Classification keypoint heatmap
+            center_reg_heatmap (torch.Tensor): Shape(4, H, W) Regression keypoint heatmap
 
         Returns:
             torch.Tensor: center_cls_heatmap
@@ -90,9 +92,59 @@ class KeypointHeatmapEncoder:
 
             if 0 <= uf < W and 0 <= vf < H:
                 center_mask[int(vf), int(uf)] = 1.0
-                center_reg_heatmap[0, int(vf), int(uf)] = u - uf
-                center_reg_heatmap[1, int(vf), int(uf)] = v - vf
-                center_reg_heatmap[2, int(vf), int(uf)] = width
-                center_reg_heatmap[3, int(vf), int(uf)] = height
+                # We don't regress relative height/width, but absolute height/width offset
+                # w.r.t feature map dimensions. The offsets are generally < 1 because it's the
+                # offset between true pixel value and floored pixel value.
+                # However, height and width are relatives to keep the range between 0 and 1.
+                center_reg_heatmap[0, int(vf), int(uf)] = u - uf # Offset from floored value
+                center_reg_heatmap[1, int(vf), int(uf)] = v - vf # Offset from floored value
+                center_reg_heatmap[2, int(vf), int(uf)] = width / W # Regress relative width
+                center_reg_heatmap[3, int(vf), int(uf)] = height / H # Regress relative height
 
         return center_mask, center_cls_heatmap, center_reg_heatmap
+
+    def decode(self, center_cls_heatmap, center_reg_heatmap, num_detections=20):
+        """Decode keypoint heatmaps into detections.
+
+        Args:
+            center_cls_heatmap (torch.Tensor): (num_classes, H, W) Keypoint heatmap for classification.
+            center_reg_heatmap (torch.Tensor): (4, H, W) Keypoint heatmap for regression.
+            num_detections (int, optional): Number of detections to return. Defaults to 20.
+
+        Returns:
+            torch.Tensor: top_boxes
+            torch.Tensor: top_scores
+            torch.Tensor: top_labels
+        """
+        sig_heatmap = F.sigmoid(center_cls_heatmap)
+        maxpool_heatmap = F.max_pool2d(sig_heatmap, kernel_size=5, stride=1, padding=2)
+        peak_mask = sig_heatmap == maxpool_heatmap
+        peaks = maxpool_heatmap * peak_mask
+
+        keypoint_scores, keypoint_labels = torch.max(peaks, dim=0)
+        uv_indices = torch.stack([self.u_indices, self.v_indices], dim=-1)
+
+        labels = keypoint_labels.view(-1)
+        scores = keypoint_scores.view(-1)
+
+        # Regression heatmap is channel first. We need to permute before reshaping.
+        center_offset = center_reg_heatmap[:2, :, :].permute(1, 2, 0).view(-1, 2)
+        center_wh = center_reg_heatmap[2:, :, :].permute(1, 2, 0).view(-1, 2)
+
+        H, W = self.heatmap_shape
+        uv_indices = uv_indices.view(-1, 2)
+
+        x_min = (uv_indices[:, 0] + center_offset[:, 0] - center_wh[:, 0] * W / 2.0) / W
+        y_min = (uv_indices[:, 1] + center_offset[:, 1] - center_wh[:, 1] * H / 2.0) / H
+        x_max = (uv_indices[:, 0] + center_offset[:, 0] + center_wh[:, 0] * W / 2.0) / W
+        y_max = (uv_indices[:, 1] + center_offset[:, 1] + center_wh[:, 1] * H / 2.0) / H
+
+        decoded_boxes = torch.stack([x_min, y_min, x_max, y_max], axis=1)
+
+        indices_sorted_by_score = torch.argsort(scores, descending=True)
+
+        top_scores = scores[indices_sorted_by_score[:num_detections]]
+        top_labels = labels[indices_sorted_by_score[:num_detections]]
+        top_boxes = decoded_boxes[indices_sorted_by_score[:num_detections]]
+
+        return top_boxes, top_scores, top_labels
