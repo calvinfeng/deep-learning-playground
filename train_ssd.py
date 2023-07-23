@@ -1,12 +1,11 @@
 import argparse
-import coloredlogs
 import datetime
 import logging
 import os
+
+import coloredlogs
 import torch
 import torch.optim as optim
-import pdb
-
 from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -22,8 +21,8 @@ from ssd.model import SingleShotDetector
 
 logger = logging.getLogger(__name__)
 coloredlogs.install(level='DEBUG', logger=logger)
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def train(args):
     generator = AnchorGenerator()

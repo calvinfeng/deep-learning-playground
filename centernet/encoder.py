@@ -10,7 +10,7 @@ class KeypointHeatmapEncoder:
     def __init__(self, heatmap_shape: Tuple[int, int], num_classes: int=21, std: float=0.05):
         self.heatmap_shape = heatmap_shape
         self.num_classes = num_classes
-        self.std = std
+        self.std = torch.tensor(std)
         # Precompute indices grid with numpy
         H, W = self.heatmap_shape
         u_indices = np.arange(W, dtype=np.float32)
@@ -18,6 +18,13 @@ class KeypointHeatmapEncoder:
         u_indices, v_indices = np.meshgrid(u_indices, v_indices)
         self.u_indices = torch.from_numpy(u_indices)
         self.v_indices = torch.from_numpy(v_indices)
+
+    def to(self, device):
+        self.device = device
+        self.u_indices = self.u_indices.to(device)
+        self.v_indices = self.v_indices.to(device)
+        self.std = self.std.to(device)
+        return self
 
     def batch_encode(self, batch_gt):
         batch_size = batch_gt.size(0)
@@ -28,7 +35,7 @@ class KeypointHeatmapEncoder:
             gt_labels = batch_gt_labels[i]
             non_background = gt_labels > 0 # Remove padded values.
             center_mask, center_cls_heatmap, center_reg_heatmap = self.encode(gt_boxes[non_background],
-                                                                              gt_labels[non_background])
+                                                                              gt_labels[non_background].int())
             batch_center_mask.append(center_mask)
             batch_center_cls_heatmap.append(center_cls_heatmap)
             batch_center_reg_heatmap.append(center_reg_heatmap)
@@ -39,9 +46,9 @@ class KeypointHeatmapEncoder:
 
     def encode(self, gt_boxes: torch.Tensor, gt_labels: torch.Tensor):
         H, W = self.heatmap_shape
-        center_cls_heatmap = torch.zeros((self.num_classes, H, W))
-        center_reg_heatmap = torch.zeros((4, H, W))
-        center_mask = torch.zeros((H, W))
+        center_cls_heatmap = torch.zeros((self.num_classes, H, W)).to(self.device)
+        center_reg_heatmap = torch.zeros((4, H, W)).to(self.device)
+        center_mask = torch.zeros((H, W)).to(self.device)
 
         # Convert point-form to center-size form.
         widths = (gt_boxes[:, 2] - gt_boxes[:, 0]) * W
