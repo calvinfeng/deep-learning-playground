@@ -1,5 +1,7 @@
 import cv2
 import numpy as np
+import torch
+import torchvision.ops as ops
 import pdb
 
 
@@ -38,6 +40,21 @@ def batch_tensor_to_images(batch_img_tensor, batch_bbox_tensor, batch_label_tens
     return imgs
 
 
+def batch_tensor_to_heatmaps(batch_heatmap_tensor):
+    """Convert batch tensor of heatmaps to numpy array of heatmaps.
+
+    Args:
+        batch_heatmap_tensor (tensor): Tensor of shape (B, C, H, W) for batch of heatmaps.
+
+    Returns:
+        ndarray: Array of shape (B, H, W, C) for batch of heatmaps.
+    """
+    batch_heatmap = batch_heatmap_tensor.permute(0, 2, 3, 1).detach().contiguous().cpu().numpy()
+    batch_heatmap = batch_heatmap.astype(np.float32)
+    batch_heatmap = batch_heatmap.sum(axis=-1, keepdims=True)
+    return batch_heatmap
+
+
 def tensor_to_image(img_tensor, bbox_tensor, label_tensor,
                     class_names=None,
                     draw_bbox=True,
@@ -70,3 +87,65 @@ def draw_bounding_boxes_np(img, bboxes, labels, class_names, color=(255, 255, 0)
                              color=color,
                              thickness=2)
     return img
+
+
+def non_maximum_suppress(batch_boxes, batch_scores, batch_labels, iou_threshold=0.5,
+                                                                  score_threshold=0.5,
+                                                                  max_num_boxes=50):
+    """Perform non-maximum suppression on a batch of boxes.
+
+    Args:
+        batch_boxes (tensor): Shape(B, N, 4) boxes in point-form [min_x, min_y, max_x, max_y].
+        batch_scores (tensor): Shape(B, N) score for each box.
+        batch_labels (tensor): Shape(B, N) label for each box.
+        iou_threshold (float, optional): Defaults to 0.5.
+        max_num_boxes (int, optional): Maximum number of boxes to keep. Defaults to 50.
+    Returns:
+        batch_boxes (tensor): Shape(B, N, 4) boxes in point-form [min_x, min_y, max_x, max_y].
+        batch_scores (tensor): Shape(B, N) score for each box.
+        batch_labels (tensor): Shape(B, N) label for each box.
+    """
+    batch_size = batch_boxes.size(0)
+    nms_boxes_list = []
+    nms_scores_list = []
+    nms_labels_list = []
+
+    for i in range(batch_size):
+        boxes = batch_boxes[i]
+        scores = batch_scores[i]
+        labels = batch_labels[i]
+
+        # Select for non-background prior boxes.
+        pos_mask = labels > 0
+        boxes = boxes[pos_mask]
+        scores = scores[pos_mask]
+        labels = labels[pos_mask]
+
+        selected_indices = ops.nms(boxes, scores, iou_threshold)
+        nms_boxes = boxes[selected_indices]
+        nms_scores = scores[selected_indices]
+        nms_labels = labels[selected_indices]
+
+        nms_boxes = nms_boxes[nms_scores > score_threshold]
+        nms_labels = nms_labels[nms_scores > score_threshold]
+        nms_scores = nms_scores[nms_scores > score_threshold]
+
+        # If the number of boxes is less than max_num_boxes, pad with zeros.
+        # Otherwise, we just truncate the extra ones.
+        if nms_boxes.size(0) > max_num_boxes:
+            nms_boxes = nms_boxes[:max_num_boxes]
+            nms_scores = nms_scores[:max_num_boxes]
+            nms_labels = nms_labels[:max_num_boxes]
+        elif nms_boxes.size(0) < max_num_boxes:
+            nms_boxes = torch.cat([nms_boxes, torch.zeros(max_num_boxes - nms_boxes.size(0), 4).to(nms_boxes)], dim=0)
+            nms_scores = torch.cat([nms_scores, torch.zeros(max_num_boxes - nms_scores.size(0)).to(nms_scores)], dim=0)
+            nms_labels = torch.cat([nms_labels, torch.zeros(max_num_boxes - nms_labels.size(0)).to(nms_labels)], dim=0)
+        nms_boxes_list.append(nms_boxes)
+        nms_scores_list.append(nms_scores)
+        nms_labels_list.append(nms_labels)
+
+    return (
+        torch.stack(nms_boxes_list, dim=0),
+        torch.stack(nms_scores_list, dim=0),
+        torch.stack(nms_labels_list, dim=0),
+    )

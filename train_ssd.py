@@ -10,11 +10,11 @@ from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from common.img_utils import batch_tensor_to_images
+from common.img_utils import batch_tensor_to_images, non_maximum_suppress
 from data.data_utils import collate_ground_truth_boxes
 from data.voc_dataset import VOCDataset, VOC_CLASSES
 from ssd.anchor import AnchorGenerator
-from ssd.box_utils import point_form, non_maximum_suppress
+from ssd.box_utils import point_form
 from ssd.encoder import TargetEncoder
 from ssd.loss import MultiBoxLoss
 from ssd.model import SingleShotDetector
@@ -52,8 +52,8 @@ def train(args):
                             collate_fn=collate_ground_truth_boxes)
 
     multibox_loss = MultiBoxLoss()
-    ssd = SingleShotDetector().to(device)
-    optimizer = optim.SGD(ssd.parameters(),
+    model = SingleShotDetector().to(device)
+    optimizer = optim.SGD(model.parameters(),
                           lr=args.lr,
                           momentum=args.momentum,
                           weight_decay=args.weight_decay)
@@ -69,7 +69,7 @@ def train(args):
     logger.info(f"load checkpoint is set to {args.load_checkpoint}")
     if args.load_checkpoint:
         checkpoint = torch.load(args.load_checkpoint)
-        ssd.load_state_dict(checkpoint['model_state_dict'])
+        model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         global_step = checkpoint['global_step']
         epoch = checkpoint['epoch']
@@ -91,7 +91,7 @@ def train(args):
             ) = encoder.batch_encode(batch_gt)
 
             optimizer.zero_grad()
-            batch_loc_preds, batch_cls_preds = ssd(batch_imgs)
+            batch_loc_preds, batch_cls_preds = model(batch_imgs)
             loss = multibox_loss(batch_loc_preds, batch_cls_preds, batch_loc_targets, batch_cls_targets)
 
             if args.tensorboard and global_step % args.log_interval == 0:
@@ -108,7 +108,7 @@ def train(args):
                     batch_nms_box_preds,
                     batch_nms_score_preds,
                     batch_nms_label_preds,
-                ) = non_maximum_suppress(batch_box_preds, batch_score_preds, batch_label_preds, iou_threshold=0.5, score_threshold=0.01)
+                ) = non_maximum_suppress(batch_box_preds, batch_score_preds, batch_label_preds, iou_threshold=0.5, score_threshold=0.3)
                 images = batch_tensor_to_images(batch_imgs,
                                                 batch_nms_box_preds.detach(),
                                                 batch_nms_label_preds.detach(),
@@ -129,7 +129,7 @@ def train(args):
             torch.save({
                 'epoch': epoch,
                 'global_step': global_step,
-                'model_state_dict': ssd.state_dict(),
+                'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
             }, f"{args.checkpoint_dir}/ssd_{start_time.strftime('%Y-%m-%dT%H-%M-%S')}_epoch_{epoch}.pth")
 
@@ -144,7 +144,7 @@ args.add_argument("--lr", "--learning-rate", default=1e-3, type=float, help="Lea
 args.add_argument("--momentum", default=0.9, type=float, help="Momentum value for optim")
 args.add_argument("--weight-decay", default=5e-4, type=float, help="Weight decay for SGD")
 args.add_argument("--num-epochs", default=100, type=int, help="Number of epochs to train for")
-args.add_argument("--num-workers", default=1, type=int, help="Number of workers used in dataloading")
+args.add_argument("--num-workers", default=4, type=int, help="Number of workers used in dataloading")
 # Checkpoints settings
 args.add_argument("--load-checkpoint", default=None, type=str, help="Path to model checkpoint")
 args.add_argument("--checkpoint-dir", default="checkpoints", type=str, help="Directory for saving checkpoint models")
