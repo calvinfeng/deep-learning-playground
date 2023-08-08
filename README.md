@@ -15,9 +15,11 @@
 - [x] CenterNet
   - [x] Keypoint Encoder
   - [x] Keypoint Decoder
-  - [ ] Loss
-  - [ ] Training Loop
+  - [x] Loss
+  - [x] Training Loop
 - [ ] Swin Transformer
+  - [ ] Model Architecture
+  - [ ] Detection Head
 - [ ] ResNeXT
 
 ## Parallel Encoding Example
