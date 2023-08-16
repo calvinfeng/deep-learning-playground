@@ -31,8 +31,8 @@ def data_loader():
     generator = AnchorGenerator()
     anchor_boxes_by_layer = generator.anchor_boxes
     priors_boxes = []
-    for layer in anchor_boxes_by_layer:
-        priors_boxes.append(anchor_boxes_by_layer[layer].view(-1, 4))
+    for _, anchor_boxes in anchor_boxes_by_layer.items():
+        priors_boxes.append(anchor_boxes.view(-1, 4))
     priors_boxes = torch.cat(priors_boxes, dim=0)
     priors_boxes = point_form(priors_boxes, clip=True)
 
@@ -41,7 +41,7 @@ def data_loader():
     train_dataset = VOCDataset("train")
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=1,
                               collate_fn=collate_ground_truth_boxes)
-    for batch_imgs, batch_gts in train_loader:
+    for _, batch_gts in train_loader:
         batch_matched_gts, batch_matched_labels, batch_loc_targets, batch_cls_targets = encoder.encode_batch(batch_gts[:, :, :4], batch_gts[:, :, 4])
         print("Batch Matched Ground Truths", batch_matched_gts.shape)
         print("Batch Matched Labels", batch_matched_labels.shape)
