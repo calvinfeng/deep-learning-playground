@@ -373,10 +373,7 @@ class SwinTransformer(nn.Module):
             relative_pos_embedding=relative_pos_embedding,
         )
 
-        self.mlp_head = nn.Sequential(
-            nn.LayerNorm(
-                hidden_dim * 8), nn.Linear(hidden_dim * 8, num_classes)
-        )
+        self.mlp_head = nn.Sequential(nn.LayerNorm(hidden_dim * 8), nn.Linear(hidden_dim * 8, num_classes))
 
     def forward(self, img):
         x = self.stage1(img)
