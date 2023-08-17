@@ -56,7 +56,7 @@ class CenterNet(nn.Module):
             self.base[:23],
             nn.Conv2d(in_channels=512, out_channels=256, kernel_size=1),
             nn.ReLU(inplace=True),
-            AtrousSpatialPyramidPooling(rates=[1, 2, 4, 6, 8, 12, 18]),
+            AtrousSpatialPyramidPooling(rates=[6, 12, 18, 24]),
         )
         self.use_dropout = use_dropout
         self.dropout = nn.Dropout2d(p=0.5)
